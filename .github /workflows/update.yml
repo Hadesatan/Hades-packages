@@ -1,0 +1,79 @@
+name: Update packages
+on:
+  schedule:
+    - cron: 0 */12 * * *
+  workflow_dispatch:
+  repository_dispatch:
+
+jobs:
+  Update_packages:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Syn upstream
+      run: |
+        sudo timedatectl set-timezone "Asia/Shanghai"
+        shopt -s extglob
+        set +e
+        git rm -r --cache * >/dev/null 2>&1
+        rm -rf `find ./* -maxdepth 0 -type d ! -name ".github/diy" ! -name ".myipk"` >/dev/null 2>&1
+        function git_clone() {
+          git clone --depth 1 $1 $2
+          if [ "$?" != 0 ]; then
+            echo "error on $1"
+            pid="$( ps -q $$ )"
+            kill $pid
+          fi
+        }
+        function git_sparse_clone() {
+        trap 'rm -rf "$tmpdir"' EXIT
+        branch="$1" curl="$2" && shift 2
+        rootdir="$PWD"
+        tmpdir="$(mktemp -d)" || exit 1
+        if [ ${#branch} -lt 10 ]; then
+        git clone -b "$branch" --depth 1 --filter=blob:none --sparse "$curl" "$tmpdir"
+        cd "$tmpdir"
+        else
+        git clone --filter=blob:none --sparse "$curl" "$tmpdir"
+        cd "$tmpdir"
+        git checkout $branch
+        fi
+        if [ "$?" != 0 ]; then
+            echo "error on $curl"
+            exit 1
+        fi
+        git sparse-checkout init --cone
+        git sparse-checkout set "$@"
+        mv -n $@ $rootdir/ || true
+        cd $rootdir
+        }
+        function mvdir() {
+        mv -n `find $1/* -maxdepth 0 -type d` ./
+        rm -rf $1
+        }
+        (
+        git_clone https://github.com/kiddin9/my-packages && mvdir my-packages
+        ) &
+        (
+        git_clone https://github.com/kiddin9/openwrt-netdata netdata
+        ) &
+        (
+        git_clone https://github.com/Lienol/openwrt-package liep && rm -rf liep/other
+        ) &
+
+    - name: 提交并推送到仓库
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+          commit_message: "自动化：复制并更新文件"
+          file_pattern: . # 仅指定需要提交的文件
+          push_options: '--force' # 有冲突时可强制覆盖（慎用）
+
+    - name: Delete workflow runs
+      uses: Mattraks/delete-workflow-runs@main
+      continue-on-error: true
+      with:
+        retain_days: 1
+        keep_minimum_runs: 3
