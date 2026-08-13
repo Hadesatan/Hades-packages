@@ -27,17 +27,6 @@ jobs:
             pid="$( ps -q $$ )"
             kill $pid
           fi
-          if [ -z "$2" ]; then
-            cd "${1##*/}"
-            ls -la
-          else
-            cd "$2"
-            ls -la
-          fi
-         # rm -rf .git && rm -rf .git*
-         # ls -la
-          cd ..
-          ls -la
         }
         function git_sparse_clone() {
         trap 'rm -rf "$tmpdir"' EXIT
@@ -66,6 +55,7 @@ jobs:
         rm -rf $1
         }
         git_clone https://github.com/theosoft-git/luci-app-easymesh
+        rm -Rf */.git
 
     - name: 提交并推送到仓库
       uses: stefanzweifel/git-auto-commit-action@v7
