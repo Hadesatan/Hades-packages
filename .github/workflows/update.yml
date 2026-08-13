@@ -27,9 +27,13 @@ jobs:
             pid="$( ps -q $$ )"
             kill $pid
           fi
-          ls -la
-          cd "${$1##*/}"
-          ls -la
+          if [ -z "$2" ]; then
+            cd "${1##*/}"
+            ls -la
+          else
+            cd "$2"
+            ls -la
+          fi
          # rm -rf .git && rm -rf .git*
          # ls -la
           cd ..
