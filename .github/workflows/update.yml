@@ -27,7 +27,8 @@ jobs:
             pid="$( ps -q $$ )"
             kill $pid
           fi
-          cd "${ddf1##*/}"
+          ls -la
+          cd "${$1##*/}"
           ls -la
          # rm -rf .git && rm -rf .git*
          # ls -la
