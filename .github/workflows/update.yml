@@ -55,7 +55,7 @@ jobs:
         rm -rf $1
         }
         git_clone https://github.com/theosoft-git/luci-app-easymesh
-        rm -Rf */.git
+        rm -Rf */.git*
 
     - name: 提交并推送到仓库
       uses: stefanzweifel/git-auto-commit-action@v7
