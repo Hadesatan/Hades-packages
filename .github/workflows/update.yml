@@ -55,6 +55,7 @@ jobs:
         rm -rf $1
         }
         git_clone https://github.com/theosoft-git/luci-app-easymesh
+        git_clone https://gitee.com/dffxy/luci-app-mesh
         rm -Rf */.git*
 
     - name: 提交并推送到仓库
