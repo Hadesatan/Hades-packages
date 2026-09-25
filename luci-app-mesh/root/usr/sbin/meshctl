@@ -47,7 +47,7 @@ sync_fail() {
 mesh_running_channel() { mesh_radio_running_channel "$1"; }
 
 # ================= AP/射频 快照缓冲 =================
-# APS_buf    每行: band|ssid|enc|key|r|ft_over_ds|mdid|nasid|reassoc
+# APS_buf    每行: band|ssid|enc|key|r|ft_over_ds|mdid|nasid|reassoc|disabled
 # RADIOS_buf 每行: band|channel|real|htmode   (real=主节点实际运行信道，auto 时为 0)
 
 band_channel()      { printf '%s\n' "$RADIOS_buf" | awk -F'|' -v b="$1" '$1==b{print $2; exit}'; }
@@ -143,9 +143,10 @@ mesh_uci_mirror_aps() {
 		fi
 		used=""
 		n=0
-		while IFS='|' read -r db dssid denc dkey r w mdid nasid rad; do
+		while IFS='|' read -r db dssid denc dkey r w mdid nasid rad ddis; do
 			[ -n "$dssid" ] || continue
 			[ "$db" = "$band" ] || continue
+			ddis=${ddis:-0}
 			# 第一个 AP 复用原生接口；其余先复用自建段，不够再新建
 			if [ "$n" = "0" ]; then
 				tgt=$(mesh_first_ap_on_radio "$radio")
@@ -197,7 +198,7 @@ mesh_uci_mirror_aps() {
 				mdel wireless.$tgt.nasid
 				mdel wireless.$tgt.ft_psk_generate_local
 			fi
-			mset wireless.$tgt.disabled=0
+			mset wireless.$tgt.disabled="$ddis"
 			n=$((n+1))
 		done <<EOF
 $APS_buf
@@ -963,7 +964,7 @@ cmd_status() {
 	fi
 
 	local kern wpad lanip lanproto bat_cap=0 bat_on=0 bat_if="" bat_hifs="" bat_hifs_json="" h
-	local bat_gw=auto bat_algo=default batctl_ok=0
+	local bat_gw=auto bat_algo=default batctl_ok=0 dawn_ok=0 umdns_ok=0
 	kern=0; mesh_kernel_mesh_cap && kern=1
 	wpad=0;  mesh_wpad_mesh_cap && wpad=1
 	bat_cap=0; mesh_batman_cap && bat_cap=1
@@ -972,6 +973,11 @@ cmd_status() {
 	# "模块在、batctl 不在" —— 此时 cap.batman=1 会让界面全绿，而 apply 实际
 	# 被拒。所以单独探测二进制并暴露给界面。
 	batctl_ok=0; mesh_batctl >/dev/null 2>&1 && batctl_ok=1
+	# 漫游引导（dawn + umdns）：与组网本身无关（缺了照样能组 mesh），但缺了就没有
+	# 802.11k/v 引导，客户端会抱着弱信号的 AP 不放。这里只做"是否安装"的探测并
+	# 暴露给界面，不作为 apply 的硬性门槛 —— 免得没装 dawn 的设备连组网都用不了。
+	dawn_ok=0;  mesh_dawn_cap  && dawn_ok=1
+	umdns_ok=0; mesh_umdns_cap && umdns_ok=1
 	# batman-adv 为强制项（见 cmd_apply）：只要内核具备能力即视为启用，
 	# 不再读 main.batman —— 界面上也没有这个开关了。
 	bat_on=0
@@ -1044,7 +1050,7 @@ cmd_status() {
  "lan_proto": "$(mesh_esc "$lanproto")",
  "mac": "$(mesh_esc "$(mesh_primary_mac)")",
  "now": $now,
- "capabilities": {"kernel_mesh": $kern, "wpad_mesh": $wpad, "batman": $bat_cap, "batctl": $batctl_ok},
+ "capabilities": {"kernel_mesh": $kern, "wpad_mesh": $wpad, "batman": $bat_cap, "batctl": $batctl_ok, "dawn": $dawn_ok, "umdns": $umdns_ok},
  "batman": {"capable": $bat_cap, "enabled": $bat_on, "iface": "$(mesh_esc "$bat_if")", "hardifs": [$bat_hifs_json], "gw_mode": "$(mesh_esc "$bat_gw")", "gw_mode_conf": "$(mesh_esc "$(mesh_uci_getd main.batman_gw auto)")", "routing_algo": "$(mesh_esc "$bat_algo")"},
  "radios": [$radios_json],
  "backhaul": {"ifname": "$(mesh_esc "$bh_if")", "channel": "$(mesh_esc "$bh_ch")", "band": "$(mesh_esc "$bh_band")"},
@@ -1155,11 +1161,14 @@ mesh_load_buffers_from_json() {
 	local json="$1" n i ssid enc key r w mdid nasid rad band ch ht real
 	APS_buf=""
 	RADIOS_buf=""
+# 以 band 是否真实存在作为下标有效哨兵，不再用"SSID 非空"——空 SSID 是合法的
+# 隐藏网络，旧逻辑遇空 SSID 直接 break 会让其后所有 AP 都不被镜像。
+# 新增 disabled 字段（第 10 列）传递主节点 AP 的启用状态，子节点按主节点意图镜像。
 	i=0
-	while :; do
-		ssid=$("$JF" -s "$json" -e "@.ap[$i].ssid" 2>/dev/null)
-		[ -n "$ssid" ] || break
+	while [ "$i" -le 15 ]; do
 		band=$("$JF" -s "$json" -e "@.ap[$i].band" 2>/dev/null)
+		[ -n "$band" ] || break
+		ssid=$("$JF" -s "$json" -e "@.ap[$i].ssid" 2>/dev/null)
 		enc=$("$JF" -s "$json" -e "@.ap[$i].enc" 2>/dev/null); enc=${enc:-none}
 		key=$("$JF" -s "$json" -e "@.ap[$i].key" 2>/dev/null); key=${key:-}
 		r=$("$JF" -s "$json" -e "@.ap[$i].r" 2>/dev/null); r=${r:-0}
@@ -1167,10 +1176,10 @@ mesh_load_buffers_from_json() {
 		mdid=$("$JF" -s "$json" -e "@.ap[$i].mdid" 2>/dev/null)
 		nasid=$("$JF" -s "$json" -e "@.ap[$i].nasid" 2>/dev/null)
 		rad=$("$JF" -s "$json" -e "@.ap[$i].reassoc" 2>/dev/null)
-		APS_buf="$APS_buf$band|$ssid|$enc|$key|$r|$w|$mdid|$nasid|$rad
+		dis=$("$JF" -s "$json" -e "@.ap[$i].disabled" 2>/dev/null); dis=${dis:-0}
+		APS_buf="$APS_buf$band|$ssid|$enc|$key|$r|$w|$mdid|$nasid|$rad|$dis
 "
 		i=$((i+1))
-		[ "$i" -gt 15 ] && break
 	done
 	i=0
 	while :; do

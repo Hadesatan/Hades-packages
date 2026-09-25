@@ -98,10 +98,11 @@ ap_json() {
 		mdid=$(uci -q get "wireless.$sec.mobility_domain" 2>/dev/null)
 		nasid=$(uci -q get "wireless.$sec.nasid" 2>/dev/null)
 		rad=$(uci -q get "wireless.$sec.reassociation_deadline" 2>/dev/null)
+		dis=$(uci -q get "wireless.$sec.disabled" 2>/dev/null); dis=${dis:-0}
 		[ "$first" = 1 ] || printf ','
 		first=0
-		printf '{"band":"%s","ssid":"%s","enc":"%s","key":"%s","r":"%s","ft_over_ds":"%s","mdid":"%s","nasid":"%s","reassoc":"%s"}' \
-			"$band" "$(mesh_esc "$ssid")" "$enc" "$(mesh_esc "$key")" "$r" "$w" "$(mesh_esc "$mdid")" "$(mesh_esc "$nasid")" "$(mesh_esc "$rad")"
+		printf '{"band":"%s","ssid":"%s","enc":"%s","key":"%s","r":"%s","ft_over_ds":"%s","mdid":"%s","nasid":"%s","reassoc":"%s","disabled":"%s"}' \
+			"$band" "$(mesh_esc "$ssid")" "$enc" "$(mesh_esc "$key")" "$r" "$w" "$(mesh_esc "$mdid")" "$(mesh_esc "$nasid")" "$(mesh_esc "$rad")" "$dis"
 	done
 }
 

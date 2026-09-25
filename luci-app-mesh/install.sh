@@ -17,6 +17,10 @@ install -m 755 "$SRC/root/etc/hotplug.d/iface/30-mesh-bat-mtu" /etc/hotplug.d/if
 install -d /www/cgi-bin
 install -m 755 "$SRC/root/www/cgi-bin/mesh-sync" /www/cgi-bin/mesh-sync
 
+echo "==> 安装无线漫游自检脚本（97 补 802.11k/v/r · 99 校正 dawn/umdns）"
+install -m 755 "$SRC/root/etc/init.d/97-wifi-roaming" /etc/init.d/97-wifi-roaming
+install -m 755 "$SRC/root/etc/init.d/99-dawn-roaming" /etc/init.d/99-dawn-roaming
+
 echo "==> 安装 rpcd 插件（LuCI JS 界面通过 ubus 调用 meshctl）"
 install -d /usr/libexec/rpcd
 install -m 755 "$SRC/root/usr/libexec/rpcd/mesh" /usr/libexec/rpcd/mesh
@@ -126,6 +130,13 @@ echo "==> 重启 rpcd（注册 mesh ubus 对象）"
 echo "==> 启用并启动服务"
 /etc/init.d/mesh enable
 /etc/init.d/mesh restart 2>/dev/null || true
+# 漫游自检：开机自启 + 每分钟 cron 巡检。
+# 脚本自带 mesh 守卫（/etc/config/mesh 的 enabled 必须为 1 才动作），所以此刻即便
+# 用户还没启用组网，也不会被改无线配置；一旦启用组网，自愈立刻开始工作。
+for s in 97-wifi-roaming 99-dawn-roaming; do
+	/etc/init.d/$s enable >/dev/null 2>&1 || true
+	/etc/init.d/$s cron_enable >/dev/null 2>&1 || true
+done
 
 echo "==> 清除 LuCI 缓存"
 rm -f /tmp/luci-indexcache* 2>/dev/null || true

@@ -48,6 +48,8 @@
 }
 .mesh-note.green { background: #eef7ee; border-color: #cfe6cf; color: #3c763d; }
 .mesh-note.red { background: #fdecea; border-color: #f5c6cb; color: #a94442; }
+/* 组网可用、但漫游组件（dawn / umdns）缺失：不阻断组网，只作提醒 */
+.mesh-note.orange { background: #fff7e6; border-color: #f0d9a8; color: #8a6d3b; }
 
 .mesh-code {
 	background: #fbfbfb;

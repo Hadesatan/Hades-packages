@@ -4,7 +4,7 @@ OpenWrt LuCI 的无线 Mesh 组网插件（JavaScript 界面 + busybox ash 后�
 
 两台 OpenWrt 路由器即可零布线组网：**主节点**接光猫出网、作为配置源；**子节点**插电自动跟随，全部物理端口并入内网。有网线时拉一根线即自动切换有线回程（二层直转、满线速），拔线无线回程无缝接管。全部操作在 LuCI 网页完成，无需命令行。
 
-- 当前版本：`1.0.0-r14`（`PKG_RELEASE` 14）
+- 当前版本：`1.0.0-r20`（`PKG_RELEASE` 20）
 - 适用：OpenWrt 21.02+（opkg）/ OpenWrt 25.12+（apk）；已实测斐讯 K2P（mt7621 / mt76）
 - 许可：Apache-2.0
 
@@ -23,7 +23,8 @@ OpenWrt LuCI 的无线 Mesh 组网插件（JavaScript 界面 + busybox ash 后�
 | AP 信道错开 | 主节点信道固定时，各子节点 AP 按注册序号在 2.4G {1,6,11} / 5G 36·149·44·157… 轮转错开，减少同频干扰（回程频段除外，回程必须同信道） |
 | 回滚保护 | 应用后开启看护窗口（静态地址 120 秒 / DHCP 子节点 180 秒），到期管理地址不可达则自动还原组网前配置并整机重启；页面顶部出现「保留新配置 / 立即还原」确认条 |
 | 备份与还原 | 首次启用自动把 wireless / network / dhcp / firewall 备份到 `/etc/mesh-backup/`（关闭再开启不覆盖）；「还原组网前配置」用备份整份覆盖四个配置并重启路由器，可完整恢复被删除的 WAN 口 |
-| 能力自检 | 组网状态页顶部红框逐条列出缺失项：驱动 mesh point / 完整版 wpad / kmod-batman-adv / batctl；apply 前就能看到，缺什么装什么 |
+| 能力自检 | 组网状态页顶部提示框集中显示缺失项：驱动 mesh point / 完整版 wpad / kmod-batman-adv / batctl / 漫游引导 dawn / umdns。组网必需项缺失 → 红框；组网可用但缺 dawn 或 umdns → 橙框提醒（不影响组网，只是客户端不会被引导切换） |
+| 无线漫游自愈 | 随包安装两个幂等自检脚本（`97-wifi-roaming` / `99-dawn-roaming`），默认开机自启 + 每分钟 cron 巡检：前者补齐 AP 的 802.11k 邻居报告 / 802.11v BTM / 802.11r FT，后者校正 dawn 广播地址与 umdns 网络绑定。只在检测到配置漂移时才落盘并重载，配置正常时一轮开销约等于一次 md5sum；脚本带 mesh 守卫，未启用组网时完全静默 |
 | LuCI 三页面 | 组网状态（能力检测、运行状态、网络拓扑、邻居节点）、组网设置、诊断与维护（还原组网前配置、端口并入内网） |
 
 **强依赖**（`Makefile` `LUCI_DEPENDS`，编译安装自动拉齐）：
@@ -32,6 +33,8 @@ OpenWrt LuCI 的无线 Mesh 组网插件（JavaScript 界面 + busybox ash 后�
 +uclient-fetch +rpcd +curl +jsonfilter +iwinfo +iw
 +wpad-mesh-openssl        # 完整版 wpad（wpad-basic / wpad-mini 不带 mesh point）
 +kmod-batman-adv +batctl  # batman-adv 路径选择
++luci-proto-batman-adv    # bat0 的 LuCI 协议：网页端才能新建/编辑 proto 'batadv' 的接口
++dawn +umdns              # 无线漫游引导：AP 间交换客户端信号/负载，用 802.11k/v 引导切换
 ```
 
 ---
@@ -53,6 +56,8 @@ luci-app-mesh/
 └── root/
     ├── etc/config/mesh                       # 默认 UCI 配置（conffile 保护，升级不丢活配置）
     ├── etc/init.d/mesh                       # procd 守护服务（S99，respawn）
+    ├── etc/init.d/97-wifi-roaming            # 漫游自检：补齐 AP 的 802.11k/11v/11r（开机自启 + cron）
+    ├── etc/init.d/99-dawn-roaming            # 漫游自检：校正 dawn 广播地址 / umdns 绑定
     ├── etc/hotplug.d/iface/30-mesh-bat-mtu   # 接口 up 时事件驱动补 bat0 hardif MTU
     ├── etc/nginx/conf.d/mesh-sync.locations  # Kwrt 等 nginx+uwsgi 固件专用（uhttpd 忽略）
     ├── usr/sbin/meshctl                      # 核心命令行，8 个子命令
@@ -98,14 +103,17 @@ opkg update && opkg install curl jsonfilter iwinfo iw uclient-fetch rpcd wpad-me
 
 # batman-adv（两代固件通用；kmod 包必须与固件内核版本匹配）
 apk add kmod-batman-adv batctl        # 或 opkg install kmod-batman-adv batctl
+
+# bat0 的 LuCI 协议（纯前端，无内核耦合；缺它时网页端认不出 batadv 协议接口）
+apk add luci-proto-batman-adv         # 或 opkg install luci-proto-batman-adv
 ```
 
 **2）安装程序**，二选一：
 
 ```sh
 # a. 包管理器装编译好的 ipk/apk
-apk add --allow-untrusted luci-app-mesh-1.0.0-r14.apk
-opkg install luci-app-mesh_1.0.0-r14_all.ipk
+apk add --allow-untrusted luci-app-mesh-1.0.0-r20.apk
+opkg install luci-app-mesh_1.0.0-r20_all.ipk
 
 # b. 或把整个项目目录传到设备上，运行直装脚本（自动复制文件、重启 rpcd、启用服务）
 sh install.sh
@@ -135,6 +143,18 @@ sh install.sh
 - **配置同步协议**：子节点每 10 秒 `GET /cgi-bin/mesh-sync?mac=..&token=<回程密码>&link=wifi|wired` → 主节点校验角色 / enabled / token 后返回 JSON（含 AP 列表、信道、序号）；子节点按序号镜像配置，一致则跳过。链路类型由 station 表与入口端口判定，无线、有线断一个都能继续同步。
 - **备份 / 还原 / 回滚语义**：`/etc/mesh-backup/` 只在首次启用时创建，停用再启用**不覆盖**；「还原」= 备份整份覆盖回 wireless/network/dhcp/firewall + `enabled=0` + 删备份 + 延迟 2 秒整机重启（先让成功应答返回页面）；自动回滚到期不可达时走同一条还原路径。
 - **防静默失败**：能力缺失（wpad / kmod-batman-adv / batctl）在状态页红框明示 + apply 强制拦截；`capabilities` 中 `batctl` 独立于内核模块判定，避免「模块在、工具缺」时界面假绿。
+- **漫游配置自愈（为什么用轮询而不是事件）**：本系列固件**不发 procd 的 `config.change` 事件**（命令行 `uci commit` 与 LuCI 的 `uci apply` 两条路径实测都不发），而 LuCI 无线页保存会**重写整段 wireless**，把 `rrm_neighbor_report` / `rrm_beacon_report` 这类它不认识的项直接冲掉。因此 `97-wifi-roaming` / `99-dawn-roaming` 采用每分钟 cron 巡检：配置未变时一轮只做一次 md5 比较即退出，检测到差异才 `uci commit` 并后台重载。两者都是**差异修复器**而非配置器——只补缺失项、不重写已正确的项，所以不会每次巡检都断一次无线。
+- **mesh 守卫**：两个脚本都以 `/etc/config/mesh` 的 `enabled` 为总开关。安装时默认 `enable`（开机自启）+ `cron_enable`（每分钟巡检），但在未启用组网的设备上（`enabled != 1`）一律静默退出——**装包本身不会改动无线配置**；卸载时 `prerm` 自动清掉 cron 条目与自启链接。
+
+---
+
+## 变更记录
+
+### r20（2026-09-24）
+基于 r19 全量代码审查，修复三处逻辑缺陷（不改变既有正常组网行为，仅修正边界一致性）：
+- **漫游自检 `fast_skip` 纳入脚本自身指纹**：`97-wifi-roaming` / `99-dawn-roaming` 的快速通道原本只比对配置文件的 md5，改了脚本强制规则后已部署设备永不重跑、旧规则滞留。现把脚本本体 `$0`（解析 rc.d 软链接后的真实路径）的 md5 并入指纹，脚本升级 / 调参后必然重新执行。
+- **AP 镜像尊重主节点 `disabled` 状态**：`mesh-sync` 下发 AP 时新增 `disabled` 字段，子节点按主节点意图镜像（主节点有意关闭的 AP，子节点不再强制开启）。`mesh_wifi_ensure_aps_up` 已对 `disabled=1` 的 AP 跳过，不会把镜像结果又顶回去。
+- **配置镜像循环不再因空 SSID 提前退出**：`meshctl` 载入主节点 AP 列表时，改以「band 下标是否真实存在」为哨兵，空 SSID（合法隐藏网络）不再导致后续 AP 漏镜像。
 
 ---
 

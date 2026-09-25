@@ -951,6 +951,36 @@ mesh_wpad_mesh_cap() {
 	[ "$r" = 1 ]
 }
 
+# 某个包是否已安装（按包名精确匹配，带 300s 缓存，缓存文件按包名分开）。
+# 为什么要缓存：解析包数据库在慢设备上要数百毫秒，而状态页每 10 秒轮询一次
+# cmd_status，不能把它放进高频路径（与 mesh_wpad_mesh_cap 同样的理由）。
+# 为什么按包名而不是 command -v：dawn / umdns 这类守护进程的可执行文件路径
+# 在不同固件上不完全一致，而包数据库里的名字是稳定的（apk 的 P: / opkg 的 Package:）。
+mesh_pkg_cap() {
+	local pkg="$1" cache now mt r
+	[ -n "$pkg" ] || return 1
+	cache="$MESH_TMP_DIR/pkg-$pkg"
+	now=$(date +%s)
+	if [ -r "$cache" ]; then
+		mt=$(sed -n '1p' "$cache" 2>/dev/null)
+		r=$(sed -n '2p' "$cache" 2>/dev/null)
+		case "$mt" in ''|*[!0-9]*) mt=0;; esac
+		case "$r" in
+			0|1) [ "$((now - mt))" -lt 300 ] && { [ "$r" = 1 ]; return $?; };;
+		esac
+	fi
+	r=0
+	mesh_installed_names 2>/dev/null | grep -qx "$pkg" && r=1
+	mkdir -p "$MESH_TMP_DIR" 2>/dev/null
+	printf '%s\n%s\n' "$now" "$r" > "$cache" 2>/dev/null
+	[ "$r" = 1 ]
+}
+
+# 漫游引导能力：dawn（各 AP 间交换客户端信号/负载并用 802.11k/v 引导切换）
+# 与其邻居发现依赖 umdns，两者缺一则 dawn 看不到别的 AP，只能退化成本地踢除。
+mesh_dawn_cap() { mesh_pkg_cap dawn; }
+mesh_umdns_cap() { mesh_pkg_cap umdns; }
+
 # ---------------- 信道 ----------------
 mesh_channel_valid() {
 	local band="$1" ch="$2"
