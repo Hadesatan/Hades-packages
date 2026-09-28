@@ -144,25 +144,31 @@ return view.extend({
 		o.description = _('路由器之间互联所用的加密方式，所有节点必须一致。');
 
 		o = s.option(form.ListValue, 'band', _('回程频段'));
-		o.value('5g', _('5 GHz(推荐)'));
-		o.value('2g', _('2.4 GHz(穿墙好)'));
-		o.value('6g', _('6 GHz(Wi-Fi 6E)'));
+		// 按本机实际射频能力列出频段：从后端 status.channels 取（缺省回退固定列表）
+		var meshBands = {};
+		if (status.channels) {
+			['5g', '2g', '6g'].forEach(function (b) {
+				if (Array.isArray(status.channels[b]) && status.channels[b].length) {
+					meshBands[b] = status.channels[b];
+				}
+			});
+		}
+		if (!Object.keys(meshBands).length) {
+			// 旧固件后端未提供 channels 时回退
+			meshBands = { '5g': [36, 40, 44, 48,149, 153, 157, 161], '2g': [1, 6, 11] };
+		}
+		if (meshBands['5g']) { o.value('5g', _('5 GHz(推荐)')); }
+		if (meshBands['2g']) { o.value('2g', _('2.4 GHz(穿墙好)')); }
+		if (meshBands['6g']) { o.value('6g', _('6 GHz(Wi-Fi 6E)')); }
 		o.value('auto', _('自动选择'));
-		o.default = '5g';
-		o.description = _('路由器之间互联所用的频段。5GHz 干扰少、速率高；2.4GHz 穿墙好、覆盖远。');
+		o.default = meshBands['5g'] ? '5g' : (meshBands['2g'] ? '2g' : (meshBands['6g'] ? '6g' : 'auto'));
+		o.description = _('路由器之间互联所用的频段，按本机实际射频能力列出。'
+			+ '5GHz 干扰少、速率高；2.4GHz 穿墙好、覆盖远；本机没有的频段不会出现。');
 
-		o = s.option(form.ListValue, 'channel', _('回程信道'));
-		[36, 40, 44, 48, 149, 153, 157, 161].forEach(function (c) {
-			o.value(String(c), '5 GHz — ' + c);
-		});
-		[1, 6, 11].forEach(function (c) {
-			o.value(String(c), '2.4 GHz — ' + c);
-		});
-		// 保留 auto 以兼容旧配置：主节点可用（子节点会跟随其实际信道），
-		// 但子节点用 auto 一定组不上网（它无法自动跟随），apply 时会自动改成默认信道
-		o.value('auto', _('自动（仅在主节点上有意义，子节点会被改为默认信道）'));
-		o.default = '36';
-		o.description = _('同一组网内所有节点必须使用完全相同的一个信道。'
+		// 回程信道：随所选频段联动。拆成 channel_5g/2g/6g/auto 四个选项，各自
+		// depends('band', …) 让 LuCI 在频段变化时自动显隐并重渲染；它们都映射到
+		// 同一个 UCI 项 channel（ucioption），仅在对应频段下可见、隐藏时不删值。
+		var chanDesc = _('同一组网内所有节点必须使用完全相同的一个信道。'
 			+ '802.11s 回程不像手机连 WiFi 那样自动跟随对端信道：两端射频落在不同信道上，'
 			+ '就永远收不到对方信标，会出现"两个接口都 up、却始终 0 个对端"。'
 			+ '默认 36（5GHz 非 DFS 段首个信道，无需等待雷达检测，支持面最广）；'
@@ -171,6 +177,22 @@ return view.extend({
 			+ '所以不建议用自动。'
 			+ '另外：本频段的 AP 与回程共用同一射频，改这里也会把本频段 AP 的信道一起改掉；'
 			+ '主节点为固定信道时，子节点另一频段的 AP 会按节点序号自动错开，互不干扰。');
+		function addChannelOpt(bandVal, labelPrefix, chans) {
+			var co = s.option(form.ListValue, 'channel_' + bandVal, _('回程信道'));
+			co.depends('band', bandVal);
+			co.ucioption = 'channel';   // 四个选项共用同一 UCI 项
+			co.retain = true;           // 频段不符时隐藏，但不删除 channel 值
+			co.rmempty = false;
+			(chans || []).forEach(function (c) { co.value(String(c), labelPrefix + c); });
+			co.value('auto', _('自动（仅在主节点上有意义，子节点会被改为默认信道）'));
+			co.default = (bandVal === 'auto') ? 'auto' : (chans && chans[0] ? String(chans[0]) : 'auto');
+			co.description = chanDesc;
+			return co;
+		}
+		addChannelOpt('5g', '5 GHz — ', meshBands['5g']);
+		addChannelOpt('2g', '2.4 GHz — ', meshBands['2g']);
+		addChannelOpt('6g', '6 GHz — ', meshBands['6g']);
+		addChannelOpt('auto', '', null);  // 频段=auto 时信道只能 auto
 
 		o = s.option(form.ListValue, 'country', _('国家/地区代码'));
 		o.value('CN', _('中国'));

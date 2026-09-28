@@ -1013,12 +1013,30 @@ cmd_status() {
 			case "$rch" in ''|*[!0-9]*) rch=0;; esac
 			[ "$first" = 1 ] || printf ',\n'
 			first=0
-			printf ' {"radio":"%s","phy":"%s","band":"%s","channel":"%s","real":%s,"htmode":"%s"}' \
-				"$radio" "$(mesh_radio_phy "$radio")" "$band" "$pch" "$rch" "$ht"
-		done
-	)
+		printf ' {"radio":"%s","phy":"%s","band":"%s","channel":"%s","real":%s,"htmode":"%s"}' \
+			"$radio" "$(mesh_radio_phy "$radio")" "$band" "$pch" "$rch" "$ht"
+	done
+)
 
-	local rb_active=0 rb_deadline=0 rb_ip="" rb_left=0
+	# 回程信道：按硬件真实能力给出每个频段可用的信道列表（前端据此按频段过滤下拉）
+	local chans_2g="" chans_5g="" chans_6g="" cb=""
+	for radio in $(mesh_radios); do
+		cb=$(mesh_radio_band "$radio")
+		case "$cb" in
+			2g) chans_2g="$chans_2g $(mesh_radio_channels "$radio")";;
+			5g) chans_5g="$chans_5g $(mesh_radio_channels "$radio")";;
+			6g) chans_6g="$chans_6g $(mesh_radio_channels "$radio")";;
+		esac
+	done
+	chans_2g=$(mesh_channels_uniq_sorted "$chans_2g")
+	chans_5g=$(mesh_channels_uniq_sorted "$chans_5g")
+	chans_6g=$(mesh_channels_uniq_sorted "$chans_6g")
+	channels_json=$(printf '"2g":%s,"5g":%s,"6g":%s' \
+		"$(mesh_list_to_json "$chans_2g")" \
+		"$(mesh_list_to_json "$chans_5g")" \
+		"$(mesh_list_to_json "$chans_6g")")
+
+local rb_active=0 rb_deadline=0 rb_ip="" rb_left=0
 	if [ -f "$MESH_STATE_DIR/rollback" ]; then
 		rb_active=1
 		rb_ip=$(sed -n 's/^ip=//p' "$MESH_STATE_DIR/rollback")
@@ -1053,6 +1071,7 @@ cmd_status() {
  "capabilities": {"kernel_mesh": $kern, "wpad_mesh": $wpad, "batman": $bat_cap, "batctl": $batctl_ok, "dawn": $dawn_ok, "umdns": $umdns_ok},
  "batman": {"capable": $bat_cap, "enabled": $bat_on, "iface": "$(mesh_esc "$bat_if")", "hardifs": [$bat_hifs_json], "gw_mode": "$(mesh_esc "$bat_gw")", "gw_mode_conf": "$(mesh_esc "$(mesh_uci_getd main.batman_gw auto)")", "routing_algo": "$(mesh_esc "$bat_algo")"},
  "radios": [$radios_json],
+ "channels": {$channels_json},
  "backhaul": {"ifname": "$(mesh_esc "$bh_if")", "channel": "$(mesh_esc "$bh_ch")", "band": "$(mesh_esc "$bh_band")"},
  "peers": {
   "count": ${peer_count:-0},

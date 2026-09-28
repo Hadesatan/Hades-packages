@@ -4,7 +4,7 @@ OpenWrt LuCI 的无线 Mesh 组网插件（JavaScript 界面 + busybox ash 后�
 
 两台 OpenWrt 路由器即可零布线组网：**主节点**接光猫出网、作为配置源；**子节点**插电自动跟随，全部物理端口并入内网。有网线时拉一根线即自动切换有线回程（二层直转、满线速），拔线无线回程无缝接管。全部操作在 LuCI 网页完成，无需命令行。
 
-- 当前版本：`1.0.0-r20`（`PKG_RELEASE` 20）
+- 当前版本：`1.0.0-r21`（`PKG_RELEASE` 21）
 - 适用：OpenWrt 21.02+（opkg）/ OpenWrt 25.12+（apk）；已实测斐讯 K2P（mt7621 / mt76）
 - 许可：Apache-2.0
 
@@ -112,8 +112,8 @@ apk add luci-proto-batman-adv         # 或 opkg install luci-proto-batman-adv
 
 ```sh
 # a. 包管理器装编译好的 ipk/apk
-apk add --allow-untrusted luci-app-mesh-1.0.0-r20.apk
-opkg install luci-app-mesh_1.0.0-r20_all.ipk
+apk add --allow-untrusted luci-app-mesh-1.0.0-r21.apk
+opkg install luci-app-mesh_1.0.0-r21_all.ipk
 
 # b. 或把整个项目目录传到设备上，运行直装脚本（自动复制文件、重启 rpcd、启用服务）
 sh install.sh
@@ -155,6 +155,11 @@ sh install.sh
 - **漫游自检 `fast_skip` 纳入脚本自身指纹**：`97-wifi-roaming` / `99-dawn-roaming` 的快速通道原本只比对配置文件的 md5，改了脚本强制规则后已部署设备永不重跑、旧规则滞留。现把脚本本体 `$0`（解析 rc.d 软链接后的真实路径）的 md5 并入指纹，脚本升级 / 调参后必然重新执行。
 - **AP 镜像尊重主节点 `disabled` 状态**：`mesh-sync` 下发 AP 时新增 `disabled` 字段，子节点按主节点意图镜像（主节点有意关闭的 AP，子节点不再强制开启）。`mesh_wifi_ensure_aps_up` 已对 `disabled=1` 的 AP 跳过，不会把镜像结果又顶回去。
 - **配置镜像循环不再因空 SSID 提前退出**：`meshctl` 载入主节点 AP 列表时，改以「band 下标是否真实存在」为哨兵，空 SSID（合法隐藏网络）不再导致后续 AP 漏镜像。
+
+### r21（2026-09-28）
+修复组网设置「回程频段 / 回程信道」不联动、且频段不按实际硬件列出的问题：
+- **回程频段按硬件列出**：`meshctl status` 新增 `channels` 字段（各射频用 `iw phy info` 取真实信道号，含 DFS）；前端据此只显示本机实际拥有的频段（没有的频段不出现），默认频段也按硬件择优。
+- **回程信道随频段联动**：原来信道下拉把 5G/2.4G 信道静态混在一个列表里、与频段选择毫无关联。现拆成 `channel_5g/2g/6g/auto` 四个选项，各自 `depends('band', …)` —— 选 5G 只列 5G 信道、选 2.4G 只列 2.4G 信道，LuCI 在切换频段时自动显隐并重渲染；四个选项映射到同一 UCI 项 `channel`，隐藏时不删值。
 
 ---
 

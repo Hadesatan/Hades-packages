@@ -313,6 +313,32 @@ mesh_radio_running_channel() {
 	echo ""
 }
 
+# radio 支持的信道号列表（含 DFS，按硬件真实能力），用于前端按频段过滤回程信道下拉。
+# iw phy info 的频率行形如 "5180 MHz [36] (23.0 dBm)"，信道号在方括号里；
+# 没有 iw / 取不到时返回空串（前端会回退到固定列表）。
+mesh_radio_channels() {
+	local radio="$1" phy
+	phy=$(mesh_radio_phy "$radio")
+	[ -n "$phy" ] || return 0
+	iw phy "$phy" info 2>/dev/null | sed -n 's/.*MHz \[\([0-9][0-9]*\)\].*/\1/p' | sort -n -u
+}
+
+# 空格分隔的信道列表 -> 去重排序后的同格式串
+mesh_channels_uniq_sorted() {
+	echo "$1" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -n -u | tr '\n' ' '
+}
+
+# 空格分隔的信道列表 -> JSON 数组 "[1,6,11]"
+mesh_list_to_json() {
+	local out="" x
+	for x in $1; do
+		case "$x" in ''|*[!0-9]*) continue;; esac
+		[ -n "$out" ] && out="$out,"
+		out="$out$x"
+	done
+	printf '[%s]' "$out"
+}
+
 # 本机 LAN 管理地址（优先 UCI，其次运行时）
 mesh_lan_ip() {
 	local a
